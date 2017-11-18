@@ -1,12 +1,28 @@
-function [ fit, grad] = tamer_obj_func_wGrad( dM_in, dM_in_indices,...
-    Mn, Cfull, km, tse_traj, U , tar_pxls , full_msk_pxls, kfilter,...
-    exp_str,exp_path, save_updates, rI_off)
+function [ fit, grad] = tamer_obj_func_wGrad( dTheta_in, mt2corr,...
+    theta_prev, sens, kdata, tse_traj, U , tar_vxls , msk_vxls, kfilt, rI_off)
+%
+% TAMER objective function and gradient calculation
+% 
+% INPUTS:
+%
+%   dTheta_in: delta theta (change in motion trajectory vector)
+%   mt2corr: specifies which motion parameters to correct
+%   th_prev: previous estimate of theta
+%   sens: sensitivity maps
+%   kdata: k-space data
+%   tse_traj: TSE shot trajectory (sampling trajectory)
+%   U: undersampling matrix
+%   tar_vxls: target voxels to reconstruct
+%   msk_vxls: voxels of mask
+%   kfilt: k-space weighting filter on the L2 norm
+%   rI_off: offset to the axis of rotation about the I-S direction
+%
+% OUTPUTS:
+%
+%   fit: data consistency fit
+%   grad: motion search gradient
 
 global tamer_vars
-
-if tamer_vars.track_opt == true;
-    tamer_vars.nmotion_traj_attmpt = tamer_vars.nmotion_traj_attmpt + 1;
-end
 
 cup = tamer_vars.cup;
 call = tamer_vars.call;
@@ -14,34 +30,18 @@ xprev_best = tamer_vars.xprev_best;
 fit_init = tamer_vars.fit_init;
 
 citer_off = tamer_vars.citer_vals_all(call+1,:);
-msk = zeros(size(Cfull, 1), size(Cfull, 2), size(Cfull, 3));
-msk(tar_pxls) = 1;
+msk = zeros(size(sens, 1), size(sens, 2), size(sens, 3));
+msk(tar_vxls) = 1;
 
-if strcmp(tamer_vars.pxl_sel_method,'cmRot')
-    citer_off = [citer_off(2),citer_off(1)]; % tmp 3/28, could do this properly
-                                             % but for now just rotating CM
-                                             % shifts
-end
-
-if ~isequal(tar_pxls, full_msk_pxls) 
-%     msk = imtranslate(msk, citer_off);
-
-    % change made 3/27 so that the mask wraps when it shifts, but switching
-    % the indices to keep the same directionality used with imtranslate,
-    % though this could be changed in later versions (would also need to
-    % change how tamer_vars.citer_vals_all is constructed)
+if ~isequal(tar_vxls, msk_vxls) 
     msk = circshift(msk, [citer_off(2),citer_off(1)]);
 end
-tar_pxls = find(msk(:));
-
-tamer_vars.tar_pxl_all = union(tamer_vars.tar_pxl_all , tar_pxls);
-per_tar = numel(tamer_vars.tar_pxl_all)/numel(full_msk_pxls);
-tamer_vars.per_tar_v = [tamer_vars.per_tar_v, per_tar];
+tar_vxls = find(msk(:));
 
 % copy best so far
 xprev = xprev_best;
-[ fit, xprev_new] = mt_fit_fcn_v9p( dM_in, dM_in_indices, Mn, Cfull, km, ...
-    tse_traj, U , tar_pxls , full_msk_pxls, xprev, [], kfilter, rI_off);
+[ fit, xprev_new] = tamer_obj_func_par( dTheta_in, mt2corr, theta_prev, sens, kdata, ...
+    tse_traj, U , tar_vxls , msk_vxls, xprev, kfilt, rI_off);
 
 % update best so far x and incr update variable
 if (fit < fit_init)
@@ -50,33 +50,26 @@ if (fit < fit_init)
     tamer_vars.xprev_best = xprev_new;
     tamer_vars.cup = cup + 1;
     
-    if save_updates
-        save(strcat(exp_path,exp_str,sprintf('_update_%d.mat', cup)),...
-            'xprev_new', 'fit_init', 'dM_in','tar_pxls')
-    end
 end
 
 %% calculate the gradient if specified using the "fixed" version of the
 %  objective function where the image is fixed and only the motion changes
 %  to speed up the gradient calculation
 if nargout > 1
-    if tamer_vars.track_opt == true;
-        tamer_vars.ngrad_calc = tamer_vars.ngrad_calc + 1;
-    end
     
-    [ fitng, ks] = mt_fit_fcn_v9_fixed( dM_in, dM_in_indices, Mn, Cfull, km, ...
-        tse_traj, U , full_msk_pxls, xprev, [], kfilter, rI_off);
+    [ fitng, ktheta] = tamer_fm_par( dTheta_in, mt2corr, theta_prev, sens, kdata, ...
+        tse_traj, U , msk_vxls, xprev, kfilt, rI_off);
     
-    grad = zeros(length(dM_in),1);
-    delta = 1e-6; % changed to 1e-3 from 1e-6 on 10/27/16, changed back to 1e-6 10/28
+    grad = zeros(length(dTheta_in),1);
+    delta = 1e-6; 
     
-    parfor cvar = 1:length(dM_in)
+    parfor cvar = 1:length(dTheta_in)
         
-        dM_dif = dM_in;
+        dM_dif = dTheta_in;
         dM_dif(cvar) = dM_dif(cvar) + delta;
         
-        [ fitg] = mt_fit_fcn_v9_fixed_shot( dM_dif, dM_in_indices, Mn, Cfull, km, ...
-            tse_traj, U , full_msk_pxls, xprev, [], kfilter,rI_off,ks,cvar);
+        [ fitg] = tamer_fm_shot( dM_dif, mt2corr, theta_prev, sens, kdata, ...
+            tse_traj, U , msk_vxls, xprev, kfilt,rI_off,ktheta,cvar);
         
         grad(cvar) = (fitg - fitng) / delta;
         

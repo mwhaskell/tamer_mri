@@ -5,7 +5,7 @@
 % Reduced Model Joint Optimization" by Melissa W. Haskell,
 % Stephen F. Cauley, and Lawrence L. Wald
 
-% Last updated: Nov 16, 2017
+% written by Melissa W. Haskell and Stephen F. Cauley
 
 %% 1. Initialization
 
@@ -81,7 +81,7 @@ rI_off = [0,0];     % -rotation offset for in-plane rotation ("rI")
 % find the initial image by calling the TAMER objective function. 
 %    "tamer_obj_func_par" uses the parallel threaded objective function
 [ fit_0, x0, ~, ks] = tamer_obj_func_par( dTheta_0, mt2corr, theta, sens, kdata, ...
-    tse_traj, U , msk_vxls , msk_vxls, [], [], kfilt, rI_off);
+    tse_traj, U , msk_vxls , msk_vxls, [], kfilt, rI_off);
 if show_figs, mosaic(x0(c1:end-c2,c3:end-c4),1,1,1,'x0',[0 max(abs(x0(:)))]); end
 
 
@@ -96,9 +96,9 @@ rtvox_indx = find(msk_vxls == (nlin/2)*ncol + ncol/2); % "root" voxel index
 %   repeatability, but one could use different motion each time)
 rng('default'); rng(1)
 thetaRand = .75*randn(tls,6);
-[ tar_vxls, ~, ~] = find_tar_pxls_v6p1( dTheta_0, ...
+[ tar_vxls, ~, ~] = find_tar_vxls( dTheta_0, ...
     mt2corr, thetaRand, sens, tse_traj, U , msk_vxls , rtvox_indx,...
-    pad, msk_vxls, tar_thre, disk_r);
+    pad, tar_thre, disk_r);
 
 %%%%%%% specific for head phantom data to move pixels more efficiently
 ncol_shift = ceil((ncol/2) / (2 * disk_r));
@@ -155,32 +155,11 @@ mkdir(exp_path);
 % tamer algorithm vars
 tamer_vars.cup = 0;   % how many times the objective has been updated
 tamer_vars.call = 0;  % total number of function calls
-
-% optimization tracking variables
-% tamer_vars.nfixed_objfnc_calls = 0;
-% tamer_vars.nobjfnc_calls = 0;
-% tamer_vars.ngrad_calc = 0;
-% tamer_vars.ntotal_pcg_steps = 0;
-% tamer_vars.pcg_steps = [];
-% tamer_vars.nmotion_traj_attmpt = 0;
-% tamer_vars.fit_vec = [];
-% tamer_vars.tar_pxl_all = [];
-% tamer_vars.per_tar_v = [];
-
-% save_updates = false;
-% hardcode_search_options = true;
-
-%%%%% changes 6/6/17 and 6/7/17
 theta_prev = theta;
 tamer_vars.fit_init = fit_0;
 tamer_vars.xprev_best = x0;
-
-
-% max_feval = length(tamer_vars.citer_vals) + 2;
-max_feval = 13; % hardcoded until I can find a better method to compare
-% the different citer_vals for each pixel method
+max_feval = length(citer_vals);
 max_iter = 2 * max_feval;
-
 tamer_opt = optimoptions(@fminunc, 'Algorithm','quasi-newton',...
     'MaxIter',max_iter,'Display','iter','SpecifyObjectiveGradient',true, ...
     'MaxFunctionEvaluations', max_feval);
@@ -195,7 +174,7 @@ for ii = 1:nsteps
     % search across x_targetted and update motion
     [dTheta_tmp, fit_tmp, exit_fl] = fminunc(@(dM_tmp) tamer_obj_func_wGrad( dM_tmp,...
         mt2corr, theta_prev, sens, kdata, tse_traj, U , tar_vxls, ...
-        msk_vxls, kfilt, exp_str, exp_path, save_updates, rI_off), ...
+        msk_vxls, kfilt, rI_off), ...
         zeros(numel(mt2corr),1), tamer_opt);
 
     
@@ -210,15 +189,19 @@ for ii = 1:nsteps
 end
 
 %% 7. Final full volume solve
-[ fit_tamer, xtamer, ~] = mt_fit_fcn_v9p( dTheta_0, mt2corr, theta_prev, sens, kdata, ...
-    tse_traj, U , msk_vxls , msk_vxls, [], [], kfilt, rI_off);
+% find the initial image by calling the TAMER objective function. 
+%    "tamer_obj_func_par" uses the parallel threaded objective function
+[ fit_tm, xtm, ~, ~] = tamer_obj_func_par( dTheta_0, mt2corr, theta_prev, sens, kdata, ...
+    tse_traj, U , msk_vxls , msk_vxls, [], kfilt, rI_off);
+if show_figs, mosaic(xtm(c1:end-c2,c3:end-c4),1,1,3,'x tamer',[0 max(abs(x0(:)))]); end
+if show_figs, figure(4); plot(theta_prev); title('motion output'); end
 
 tamer_end = toc(tamer_start);
 tamer_end_min = tamer_end / 60;
-disp(strcat('TAMER run time: ',tamer_end_min,' min'))
+fprintf('TAMER run time: %d minutes and %f seconds\n',floor(tamer_end/60),rem(tamer_end,60));
 
 % save end workspace
-save(strcat(exp_path,exp_str,num2str(ii),'_end_wrksp.mat'));
+save(strcat(exp_path,exp_str,'_end_wrksp.mat'));
 
 
 
