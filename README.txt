@@ -22,7 +22,10 @@ tamer_recon.m
     -folder containing raw data to run this example, can choose between
      two different slices to reconstruct
 
+Additional Notes:
 
+-This was tested on MATLAB 2016a. Earlier versions that use "optimset" 
+instead of "optimoptions" to set the minimization function will not run.
 
 
 
