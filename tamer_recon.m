@@ -135,7 +135,9 @@ if show_figs,
     colormap gray; title('data consistency error correlation')
 end
 
-cha_group = 1:ncha;   % here only a single cluster, so use all channels
+cha_group = 1:ncha;   % -here only a single cluster, so use all channels,
+                      %  would apply kmeans clustering if multiple groups
+                      %  were present
 sens = sens(:,:,:,cha_group);
 kdata = kdata(:,:,:,cha_group);
 U = U(:,:,:,cha_group);
