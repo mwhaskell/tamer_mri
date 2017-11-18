@@ -9,7 +9,7 @@ written by Melissa W. Haskell and Stephen F. Cauley
 
 Last Updated: Nov 17, 2017
 
-FOlder contents:
+Folder contents:
 
 tamer_recon.m 
     -main script to run the TAMER demo
